@@ -8,7 +8,7 @@ from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.drawing.image import Image as XLImage
-from openpyxl.utils import get_column_letter
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
 from PIL import Image as PILImage
 import datetime, asyncio, json, pathlib, io, csv, re
 
@@ -348,13 +348,17 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
                     pil_img.save(img_buf, format=fmt)
                     img_buf.seek(0)
                     xl_img = XLImage(img_buf)
-                    xl_img.anchor = f"G{row_idx}"
+                    # TwoCellAnchor ล็อกรูปให้อยู่ใน cell G ของ row นี้พอดี
+                    # col/row ใช้ 0-based index: G = col 6
+                    from_marker = AnchorMarker(col=6, colOff=0, row=row_idx - 1, rowOff=0)
+                    to_marker   = AnchorMarker(col=7, colOff=0, row=row_idx,     rowOff=0)
+                    anchor = TwoCellAnchor(_from=from_marker, to=to_marker)
+                    xl_img.anchor = anchor
                     ws.add_image(xl_img)
                     ws.row_dimensions[row_idx].height = ROW_H_PX
                 except Exception:
-                    ws.cell(row=row_idx, column=5, value="(โหลดรูปไม่ได้)")
-        else:
-            ws.row_dimensions[row_idx].height = 40
+                    ws.cell(row=row_idx, column=7, value="(โหลดรูปไม่ได้)")
+        ws.row_dimensions[row_idx].height = ROW_H_PX if is_image else 40
 
     out = io.BytesIO()
     wb.save(out)
