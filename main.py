@@ -280,17 +280,14 @@ async def export_posts(req: ExportRequest):
 async def _export_csv(rows, api_id, chat_id):
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["message_id", "date", "sender", "text", "roi_id", "ocr", "image_url"])
+    writer.writerow(["message_id", "date", "sender", "text", "image_url"])
     for msg, sender, is_image in rows:
         img_url = f"/media/{api_id}/{chat_id}/{msg.id}" if is_image else ""
-        parsed = parse_text(msg.text or msg.message or "")
         writer.writerow([
             msg.id,
             (msg.date + datetime.timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S"),
             sender,
             msg.text or msg.message or "",
-            parsed["roi_id"],
-            parsed["ocr"],
             img_url,
         ])
     buf.seek(0)
@@ -307,7 +304,7 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
     ws.title = "Posts"
 
     # Header
-    headers = ["Message ID", "Date", "Sender", "Text", "ROI ID", "OCR", "Image"]
+    headers = ["Message ID", "Date", "Sender", "Text", "Image"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -317,23 +314,18 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
     ws.column_dimensions["A"].width = 14
     ws.column_dimensions["B"].width = 22
     ws.column_dimensions["C"].width = 18
-    ws.column_dimensions["D"].width = 50
-    ws.column_dimensions["E"].width = 18
-    ws.column_dimensions["F"].width = 10
-    ws.column_dimensions["G"].width = 28
+    ws.column_dimensions["D"].width = 60
+    ws.column_dimensions["E"].width = 28
 
     IMG_W, IMG_H = 200, 200
-    ROW_H_PX = 160  # row height in points (~pixels)
+    ROW_H_PX = 160
 
     for row_idx, (msg, sender, is_image) in enumerate(rows, start=2):
-        parsed = parse_text(msg.text or msg.message or "")
         ws.cell(row=row_idx, column=1, value=msg.id)
         ws.cell(row=row_idx, column=2, value=(msg.date + datetime.timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S"))
         ws.cell(row=row_idx, column=3, value=sender)
         text_cell = ws.cell(row=row_idx, column=4, value=msg.text or msg.message or "")
         text_cell.alignment = Alignment(wrap_text=True, vertical="top")
-        ws.cell(row=row_idx, column=5, value=parsed["roi_id"])
-        ws.cell(row=row_idx, column=6, value=parsed["ocr"])
 
         if is_image:
             img_data = await client.download_media(msg, file=bytes)
@@ -348,16 +340,15 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
                     pil_img.save(img_buf, format=fmt)
                     img_buf.seek(0)
                     xl_img = XLImage(img_buf)
-                    # TwoCellAnchor ล็อกรูปให้อยู่ใน cell G ของ row นี้พอดี
-                    # col/row ใช้ 0-based index: G = col 6
-                    from_marker = AnchorMarker(col=6, colOff=0, row=row_idx - 1, rowOff=0)
-                    to_marker   = AnchorMarker(col=7, colOff=0, row=row_idx,     rowOff=0)
+                    # col E = index 4 (0-based)
+                    from_marker = AnchorMarker(col=4, colOff=0, row=row_idx - 1, rowOff=0)
+                    to_marker   = AnchorMarker(col=5, colOff=0, row=row_idx,     rowOff=0)
                     anchor = TwoCellAnchor(_from=from_marker, to=to_marker)
                     xl_img.anchor = anchor
                     ws.add_image(xl_img)
                     ws.row_dimensions[row_idx].height = ROW_H_PX
                 except Exception:
-                    ws.cell(row=row_idx, column=7, value="(โหลดรูปไม่ได้)")
+                    ws.cell(row=row_idx, column=5, value="(load failed)")
         ws.row_dimensions[row_idx].height = ROW_H_PX if is_image else 40
 
     out = io.BytesIO()
