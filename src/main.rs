@@ -199,14 +199,15 @@ const HTML: &str = r#"<!DOCTYPE html>
   <input id="chat_id" placeholder="-1001234567890"/>
   <div class="row">
     <div>
-      <label>วันที่เริ่มต้น (From)</label>
+      <label>วันที่เริ่มต้น ค.ศ. (From)</label>
       <input id="date_from" type="date"/>
     </div>
     <div>
-      <label>วันที่สิ้นสุด (To)</label>
+      <label>วันที่สิ้นสุด ค.ศ. (To)</label>
       <input id="date_to" type="date"/>
     </div>
   </div>
+  <div style="margin-top:8px;font-size:.8rem;color:#6e7681">⚠️ ใช้ปี ค.ศ. เช่น 2025-04-09 (ไม่ใช่ พ.ศ.)</div>
   <button id="btn" onclick="fetchPosts()">ดึงข้อมูล</button>
   <div id="status"></div>
 </div>
