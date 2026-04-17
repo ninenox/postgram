@@ -107,10 +107,11 @@ async def fetch_messages(req: FetchRequest):
         raise HTTPException(status_code=400, detail=f"ไม่พบ chat: {e}")
 
     posts = []
-    async for msg in client.iter_messages(entity, limit=None, reverse=True, offset_date=date_from):
-        if date_from and msg.date < date_from:
-            continue
+    # ดึงจาก date_to ย้อนหลัง หยุดเมื่อถึง date_from (เร็วกว่า reverse=True มาก)
+    async for msg in client.iter_messages(entity, limit=None, offset_date=date_to):
         if date_to and msg.date > date_to:
+            continue
+        if date_from and msg.date < date_from:
             break
 
         sender_name = "unknown"
@@ -140,6 +141,7 @@ async def fetch_messages(req: FetchRequest):
             "media": media_type,
         })
 
+    posts.reverse()  # เรียงจากเก่าไปใหม่
     return {"count": len(posts), "posts": posts}
 
 
