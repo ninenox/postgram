@@ -10,9 +10,18 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
 from PIL import Image as PILImage
-import datetime, asyncio, json, pathlib, io, csv
+import datetime, asyncio, json, pathlib, io, csv, re
 
 CONFIG_FILE = pathlib.Path("config.json")
+
+def parse_text(text: str) -> dict:
+    """แยก roi_id และ ocr จาก text เช่น 'roi_id=roi03_1, ocr: 88'"""
+    roi = re.search(r"roi_id\s*=\s*([^\s,]+)", text or "")
+    ocr = re.search(r"ocr\s*:\s*(\d+(?:\.\d+)?)", text or "")
+    return {
+        "roi_id": roi.group(1) if roi else "",
+        "ocr": ocr.group(1) if ocr else "",
+    }
 app = FastAPI()
 
 # In-memory store per api_id session
@@ -172,7 +181,7 @@ async def fetch_messages(req: FetchRequest):
 
         posts.append({
             "message_id": msg.id,
-            "date": msg.date.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "date": (msg.date + datetime.timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S"),
             "sender": sender_name,
             "text": msg.text or msg.message or "(no text)",
             "media": media_type,
@@ -271,14 +280,17 @@ async def export_posts(req: ExportRequest):
 async def _export_csv(rows, api_id, chat_id):
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["message_id", "date_utc", "sender", "text", "image_url"])
+    writer.writerow(["message_id", "date", "sender", "text", "roi_id", "ocr", "image_url"])
     for msg, sender, is_image in rows:
         img_url = f"/media/{api_id}/{chat_id}/{msg.id}" if is_image else ""
+        parsed = parse_text(msg.text or msg.message or "")
         writer.writerow([
             msg.id,
-            msg.date.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            (msg.date + datetime.timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S"),
             sender,
             msg.text or msg.message or "",
+            parsed["roi_id"],
+            parsed["ocr"],
             img_url,
         ])
     buf.seek(0)
@@ -295,7 +307,7 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
     ws.title = "Posts"
 
     # Header
-    headers = ["Message ID", "Date (UTC)", "Sender", "Text", "Image"]
+    headers = ["Message ID", "Date", "Sender", "Text", "ROI ID", "OCR", "Image"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -303,20 +315,25 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     ws.column_dimensions["A"].width = 14
-    ws.column_dimensions["B"].width = 24
-    ws.column_dimensions["C"].width = 20
-    ws.column_dimensions["D"].width = 60
-    ws.column_dimensions["E"].width = 28
+    ws.column_dimensions["B"].width = 22
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 50
+    ws.column_dimensions["E"].width = 18
+    ws.column_dimensions["F"].width = 10
+    ws.column_dimensions["G"].width = 28
 
     IMG_W, IMG_H = 200, 200
     ROW_H_PX = 160  # row height in points (~pixels)
 
     for row_idx, (msg, sender, is_image) in enumerate(rows, start=2):
+        parsed = parse_text(msg.text or msg.message or "")
         ws.cell(row=row_idx, column=1, value=msg.id)
-        ws.cell(row=row_idx, column=2, value=msg.date.strftime("%Y-%m-%d %H:%M:%S UTC"))
+        ws.cell(row=row_idx, column=2, value=(msg.date + datetime.timedelta(hours=7)).strftime("%Y-%m-%d %H:%M:%S"))
         ws.cell(row=row_idx, column=3, value=sender)
         text_cell = ws.cell(row=row_idx, column=4, value=msg.text or msg.message or "")
         text_cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.cell(row=row_idx, column=5, value=parsed["roi_id"])
+        ws.cell(row=row_idx, column=6, value=parsed["ocr"])
 
         if is_image:
             img_data = await client.download_media(msg, file=bytes)
@@ -331,7 +348,7 @@ async def _export_excel(client: TelegramClient, rows, chat_id):
                     pil_img.save(img_buf, format=fmt)
                     img_buf.seek(0)
                     xl_img = XLImage(img_buf)
-                    xl_img.anchor = f"E{row_idx}"
+                    xl_img.anchor = f"G{row_idx}"
                     ws.add_image(xl_img)
                     ws.row_dimensions[row_idx].height = ROW_H_PX
                 except Exception:
