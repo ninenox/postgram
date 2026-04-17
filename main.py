@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -145,13 +145,25 @@ async def fetch_messages(req: FetchRequest):
                 sender_name = s.title
 
         media_type = None
+        is_image = False
         if msg.media:
             if isinstance(msg.media, MessageMediaPhoto):
                 media_type = "photo"
+                is_image = True
             elif isinstance(msg.media, MessageMediaDocument):
-                media_type = "document"
+                doc = msg.media.document
+                mime = getattr(doc, "mime_type", "") or ""
+                if mime.startswith("image/"):
+                    media_type = "image"
+                    is_image = True
+                else:
+                    media_type = f"document ({mime or 'unknown'})"
             else:
                 media_type = "media"
+
+        # เก็บ message object ไว้สำหรับ /media endpoint
+        if is_image:
+            sess.setdefault("messages", {})[f"{req.chat_id}:{msg.id}"] = msg
 
         posts.append({
             "message_id": msg.id,
@@ -159,10 +171,38 @@ async def fetch_messages(req: FetchRequest):
             "sender": sender_name,
             "text": msg.text or msg.message or "(no text)",
             "media": media_type,
+            "has_image": is_image,
         })
 
     posts.reverse()  # เรียงจากเก่าไปใหม่
     return {"count": len(posts), "posts": posts}
+
+
+@app.get("/media/{api_id}/{chat_id}/{message_id}")
+async def get_media(api_id: int, chat_id: str, message_id: int):
+    sess = _sessions.get(api_id)
+    if not sess:
+        raise HTTPException(status_code=401, detail="ยังไม่ได้ login")
+
+    key = f"{chat_id}:{message_id}"
+    msg = sess.get("messages", {}).get(key)
+    if not msg:
+        raise HTTPException(status_code=404, detail="ไม่พบรูปภาพ")
+
+    client: TelegramClient = sess["client"]
+    if not client.is_connected():
+        await client.connect()
+
+    data = await client.download_media(msg, file=bytes)
+    if not data:
+        raise HTTPException(status_code=404, detail="ดาวน์โหลดไม่สำเร็จ")
+
+    # ตรวจ mime type
+    mime = "image/jpeg"
+    if isinstance(msg.media, MessageMediaDocument):
+        mime = getattr(msg.media.document, "mime_type", "image/jpeg") or "image/jpeg"
+
+    return Response(content=data, media_type=mime)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -205,6 +245,8 @@ HTML = """<!DOCTYPE html>
   .count-badge{display:inline-block;background:#1f6feb;color:#fff;border-radius:20px;padding:4px 16px;font-size:.85rem;margin-bottom:14px}
   .empty{text-align:center;padding:40px;color:#8b949e}
   .hint{font-size:.78rem;color:#6e7681;margin-top:6px}
+  .post-img{margin-top:10px;max-width:100%;max-height:400px;border-radius:6px;display:block;cursor:pointer}
+  .post-img:hover{opacity:.85}
 </style>
 </head>
 <body>
@@ -360,7 +402,14 @@ function renderPosts(posts) {
   const el = document.getElementById('results');
   if (!posts.length) { el.innerHTML = '<div class="empty">ไม่พบโพสต์ในช่วงวันที่ที่เลือก</div>'; return; }
   const badge = `<div class="count-badge" style="margin-left:0">${posts.length} โพสต์</div>`;
-  const items = posts.map(p => `
+  const items = posts.map(p => {
+    const imgTag = p.has_image
+      ? `<img class="post-img" loading="lazy"
+             src="/media/${apiId}/${encodeURIComponent(document.getElementById('chat_id').value.trim())}/${p.message_id}"
+             alt="รูปภาพ" onclick="window.open(this.src)">`
+      : '';
+    const mediaBadge = p.media && !p.has_image ? `<span class="media-badge">📎 ${esc(p.media)}</span>` : '';
+    return `
     <div class="post">
       <div class="post-header">
         <span class="sender">${esc(p.sender)}</span>
@@ -368,8 +417,9 @@ function renderPosts(posts) {
       </div>
       <div class="mid">Message ID: ${p.message_id}</div>
       <div class="text">${esc(p.text)}</div>
-      ${p.media ? `<span class="media-badge">📎 ${p.media}</span>` : ''}
-    </div>`).join('');
+      ${imgTag}${mediaBadge}
+    </div>`;
+  }).join('');
   el.innerHTML = badge + items;
 }
 </script>
