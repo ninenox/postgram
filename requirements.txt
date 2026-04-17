@@ -2,3 +2,5 @@ fastapi
 uvicorn[standard]
 telethon
 python-dotenv
+openpyxl
+Pillow

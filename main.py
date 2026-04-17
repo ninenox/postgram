@@ -1,11 +1,16 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
-import datetime, asyncio, json, pathlib
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.utils import get_column_letter
+from PIL import Image as PILImage
+import datetime, asyncio, json, pathlib, io, csv
 
 CONFIG_FILE = pathlib.Path("config.json")
 app = FastAPI()
@@ -205,6 +210,145 @@ async def get_media(api_id: int, chat_id: str, message_id: int):
     return Response(content=data, media_type=mime)
 
 
+class ExportRequest(BaseModel):
+    api_id: int
+    api_hash: str
+    chat_id: str
+    date_from: str | None = None
+    date_to: str | None = None
+    format: str = "excel"  # "excel" or "csv"
+
+
+
+@app.post("/export")
+async def export_posts(req: ExportRequest):
+    sess = _sessions.get(req.api_id)
+    if not sess or "session_string" not in sess:
+        raise HTTPException(status_code=401, detail="ยังไม่ได้ login")
+
+    client: TelegramClient = sess["client"]
+    if not client.is_connected():
+        await client.connect()
+
+    # ดึง posts จาก messages cache ที่เก็บไว้ตอน fetch
+    cached = sess.get("messages", {})
+    date_from = _parse_date(req.date_from)
+    date_to = _parse_date(req.date_to, end_of_day=True)
+
+    rows = []
+    for key, msg in cached.items():
+        if not key.startswith(f"{req.chat_id}:"):
+            continue
+        if date_from and msg.date < date_from:
+            continue
+        if date_to and msg.date > date_to:
+            continue
+
+        sender = "unknown"
+        if msg.sender:
+            s = msg.sender
+            if hasattr(s, "username") and s.username:
+                sender = f"@{s.username}"
+            elif hasattr(s, "first_name") and s.first_name:
+                sender = s.first_name
+            elif hasattr(s, "title"):
+                sender = s.title
+
+        is_image = isinstance(msg.media, MessageMediaPhoto) or (
+            isinstance(msg.media, MessageMediaDocument)
+            and (getattr(msg.media.document, "mime_type", "") or "").startswith("image/")
+        )
+        rows.append((msg, sender, is_image))
+
+    rows.sort(key=lambda x: x[0].date)
+
+    if req.format == "csv":
+        return await _export_csv(rows, req.api_id, req.chat_id)
+    else:
+        return await _export_excel(client, rows, req.chat_id)
+
+
+async def _export_csv(rows, api_id, chat_id):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["message_id", "date_utc", "sender", "text", "image_url"])
+    for msg, sender, is_image in rows:
+        img_url = f"/media/{api_id}/{chat_id}/{msg.id}" if is_image else ""
+        writer.writerow([
+            msg.id,
+            msg.date.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            sender,
+            msg.text or msg.message or "",
+            img_url,
+        ])
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue().encode("utf-8-sig"),  # utf-8-sig สำหรับ Excel เปิดได้
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=posts_{chat_id}.csv"},
+    )
+
+
+async def _export_excel(client: TelegramClient, rows, chat_id):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Posts"
+
+    # Header
+    headers = ["Message ID", "Date (UTC)", "Sender", "Text", "Image"]
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F6FEB")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["C"].width = 20
+    ws.column_dimensions["D"].width = 60
+    ws.column_dimensions["E"].width = 28
+
+    IMG_W, IMG_H = 200, 200
+    ROW_H_PX = 160  # row height in points (~pixels)
+
+    for row_idx, (msg, sender, is_image) in enumerate(rows, start=2):
+        ws.cell(row=row_idx, column=1, value=msg.id)
+        ws.cell(row=row_idx, column=2, value=msg.date.strftime("%Y-%m-%d %H:%M:%S UTC"))
+        ws.cell(row=row_idx, column=3, value=sender)
+        text_cell = ws.cell(row=row_idx, column=4, value=msg.text or msg.message or "")
+        text_cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+        if is_image:
+            img_data = await client.download_media(msg, file=bytes)
+            if img_data:
+                try:
+                    pil_img = PILImage.open(io.BytesIO(img_data))
+                    pil_img.thumbnail((IMG_W, IMG_H))
+                    img_buf = io.BytesIO()
+                    fmt = pil_img.format or "JPEG"
+                    if fmt not in ("JPEG", "PNG", "GIF", "BMP"):
+                        fmt = "JPEG"
+                    pil_img.save(img_buf, format=fmt)
+                    img_buf.seek(0)
+                    xl_img = XLImage(img_buf)
+                    xl_img.anchor = f"E{row_idx}"
+                    ws.add_image(xl_img)
+                    ws.row_dimensions[row_idx].height = ROW_H_PX
+                except Exception:
+                    ws.cell(row=row_idx, column=5, value="(โหลดรูปไม่ได้)")
+        else:
+            ws.row_dimensions[row_idx].height = 40
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=posts_{chat_id}.xlsx"},
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTML
@@ -298,6 +442,10 @@ HTML = """<!DOCTYPE html>
       </div>
     </div>
     <button class="btn btn-green" onclick="fetchPosts()">ดึงโพสต์</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <button class="btn" style="background:#1f6feb;margin-top:0" onclick="exportFile('excel')">📊 Export Excel</button>
+      <button class="btn" style="background:#30363d;margin-top:0" onclick="exportFile('csv')">📄 Export CSV</button>
+    </div>
     <div id="status3" class="status"></div>
   </div>
 </div>
@@ -396,6 +544,34 @@ async function fetchPosts() {
 
   setStatus('status3',`✅ พบ ${data.count} โพสต์`,'ok');
   renderPosts(data.posts);
+}
+
+async function exportFile(format) {
+  const chat_id = document.getElementById('chat_id').value.trim();
+  const date_from = document.getElementById('date_from').value || null;
+  const date_to = document.getElementById('date_to').value || null;
+  if (!chat_id) { setStatus('status3','⚠️ กรอก Chat ID ก่อน','err'); return; }
+
+  setStatus('status3', format === 'excel' ? '⏳ กำลังสร้าง Excel (รวมรูปภาพ อาจใช้เวลา)...' : '⏳ กำลังสร้าง CSV...', 'info');
+
+  const res = await fetch('/export', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({api_id: apiId, api_hash: apiHash, chat_id, date_from, date_to, format})
+  });
+
+  if (!res.ok) {
+    const data = await res.json();
+    setStatus('status3', '❌ ' + data.detail, 'err');
+    return;
+  }
+
+  const blob = await res.blob();
+  const ext = format === 'excel' ? 'xlsx' : 'csv';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `posts_${chat_id}.${ext}`; a.click();
+  URL.revokeObjectURL(url);
+  setStatus('status3', `✅ ดาวน์โหลด ${ext.toUpperCase()} สำเร็จ`, 'ok');
 }
 
 function renderPosts(posts) {
