@@ -4,3 +4,4 @@ telethon
 python-dotenv
 openpyxl
 Pillow
+jinja2
