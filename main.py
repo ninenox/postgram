@@ -5,12 +5,32 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
-import datetime, asyncio
+import datetime, asyncio, json, pathlib
 
+CONFIG_FILE = pathlib.Path("config.json")
 app = FastAPI()
 
 # In-memory store per api_id session
 _sessions: dict[int, dict] = {}
+
+
+class ConfigModel(BaseModel):
+    api_id: int
+    api_hash: str
+    phone: str
+
+
+@app.get("/config")
+async def get_config():
+    if CONFIG_FILE.exists():
+        return json.loads(CONFIG_FILE.read_text())
+    return {}
+
+
+@app.post("/config")
+async def save_config(cfg: ConfigModel):
+    CONFIG_FILE.write_text(cfg.model_dump_json())
+    return {"ok": True}
 
 
 class SendCodeRequest(BaseModel):
@@ -202,7 +222,10 @@ HTML = """<!DOCTYPE html>
     <label>เบอร์โทรศัพท์ (พร้อม country code)</label>
     <input id="phone" type="text" placeholder="+66812345678"/>
     <p class="hint">⚠️ ต้องสมัคร API ID/Hash ที่ <a href="https://my.telegram.org" target="_blank" style="color:#58a6ff">my.telegram.org</a> ก่อน</p>
-    <button class="btn btn-blue" onclick="sendCode()">ส่ง OTP</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">
+      <button class="btn btn-blue" onclick="sendCode()">ส่ง OTP</button>
+      <button class="btn" style="background:#30363d" onclick="saveConfig()">💾 บันทึก Config</button>
+    </div>
     <div id="status1" class="status"></div>
   </div>
 
@@ -251,6 +274,31 @@ function setStatus(id, msg, cls) {
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+async function loadConfig() {
+  const res = await fetch('/config');
+  if (!res.ok) return;
+  const cfg = await res.json();
+  if (cfg.api_id) document.getElementById('api_id').value = cfg.api_id;
+  if (cfg.api_hash) document.getElementById('api_hash').value = cfg.api_hash;
+  if (cfg.phone) document.getElementById('phone').value = cfg.phone;
+  if (cfg.api_id) setStatus('status1', '✅ โหลด config สำเร็จ', 'ok');
+}
+
+async function saveConfig() {
+  const api_id = parseInt(document.getElementById('api_id').value.trim());
+  const api_hash = document.getElementById('api_hash').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  if (!api_id || !api_hash || !phone) { setStatus('status1','⚠️ กรอกข้อมูลให้ครบก่อนบันทึก','err'); return; }
+  const res = await fetch('/config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({api_id, api_hash, phone})
+  });
+  if (res.ok) setStatus('status1','💾 บันทึก config แล้ว','ok');
+  else setStatus('status1','❌ บันทึกไม่สำเร็จ','err');
+}
+
+window.addEventListener('DOMContentLoaded', loadConfig);
 
 async function sendCode() {
   apiId = parseInt(document.getElementById('api_id').value.trim());
