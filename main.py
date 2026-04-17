@@ -410,7 +410,22 @@ HTML = """<!DOCTYPE html>
   .hint{font-size:.78rem;color:#6e7681;margin-top:6px}
   .post-img{margin-top:10px;max-width:100%;max-height:400px;border-radius:6px;display:block;cursor:pointer}
   .post-img:hover{opacity:.85}
+  /* Flatpickr dark override */
+  .flatpickr-calendar{background:#161b22;border:1px solid #30363d;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);color:#c9d1d9}
+  .flatpickr-day{color:#c9d1d9;border-radius:6px}
+  .flatpickr-day:hover,.flatpickr-day:focus{background:#21262d;border-color:#30363d}
+  .flatpickr-day.selected,.flatpickr-day.selected:hover{background:#1f6feb;border-color:#1f6feb;color:#fff}
+  .flatpickr-day.today{border-color:#388bfd}
+  .flatpickr-day.inRange{background:#21262d;border-color:#21262d;box-shadow:-5px 0 0 #21262d,5px 0 0 #21262d}
+  .flatpickr-months,.flatpickr-weekdays{background:#0d1117;border-radius:8px 8px 0 0}
+  .flatpickr-month,.flatpickr-weekday,.flatpickr-current-month{color:#c9d1d9;fill:#c9d1d9}
+  .flatpickr-prev-month svg,.flatpickr-next-month svg{fill:#c9d1d9}
+  .flatpickr-prev-month:hover svg,.flatpickr-next-month:hover svg{fill:#58a6ff}
+  .numInputWrapper:hover,.numInputWrapper span:hover{background:#21262d}
+  .numInput{color:#c9d1d9;background:#0d1117}
+  .flatpickr-day.flatpickr-disabled{color:#6e7681}
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 </head>
 <body>
 <div class="card">
@@ -621,6 +636,11 @@ function renderPosts(posts) {
   }).join('');
   el.innerHTML = badge + items;
 }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+  flatpickr("#date_from", { dateFormat:"Y-m-d", allowInput:true, disableMobile:false });
+  flatpickr("#date_to",   { dateFormat:"Y-m-d", allowInput:true, disableMobile:false });
 </script>
 </body>
 </html>
