@@ -1,21 +1,21 @@
 # Telegram Group Posts Viewer
 
-เว็บแอปดึงและแสดงประวัติโพสต์จากกลุ่ม Telegram ผ่าน MTProto API (Telethon) พร้อม export เป็น Excel หรือ CSV
+A web app for fetching and viewing post history from Telegram groups via the MTProto API (Telethon), with date filtering and Excel/CSV export.
 
 ## Features
 
-- ดึงประวัติโพสต์ย้อนหลังได้ทั้งหมด (ไม่จำกัดเวลา)
-- Filter ตามช่วงวันที่
-- แสดงรูปภาพที่แนบมาใน message
-- Export เป็น **Excel (.xlsx)** พร้อมรูปภาพฝังใน cell
-- Export เป็น **CSV** พร้อม URL รูปภาพ
-- แยก column `roi_id` และ `ocr` จาก text อัตโนมัติ
-- บันทึก API credentials ลง config file
+- Fetch full message history with no time limit
+- Filter by date range
+- Display attached images inline
+- Export to **Excel (.xlsx)** with images embedded in cells
+- Export to **CSV** with image URLs
+- Auto-parse `roi_id` and `ocr` values from message text into separate columns
+- Save API credentials to a local config file
 
 ## Requirements
 
 - Python 3.10+
-- Telegram API ID และ API Hash (สมัครที่ [my.telegram.org](https://my.telegram.org))
+- Telegram API ID and API Hash from [my.telegram.org](https://my.telegram.org)
 
 ## Installation
 
@@ -30,26 +30,26 @@ python3 -m venv .venv
 .venv/bin/uvicorn main:app --reload --port 8080
 ```
 
-เปิดเบราว์เซอร์ที่ `http://127.0.0.1:8080`
+Open your browser at `http://127.0.0.1:8080`
 
-### ขั้นตอนการใช้งาน
+### Steps
 
-1. **Step 1** — กรอก API ID, API Hash และเบอร์โทรศัพท์ กด **บันทึก Config** เพื่อจำค่าไว้ใช้ครั้งต่อไป แล้วกด **ส่ง OTP**
-2. **Step 2** — กรอก OTP ที่ได้รับใน Telegram
-3. **Step 3** — กรอก Chat ID หรือ Username ของกลุ่ม เลือกช่วงวันที่ แล้วกด **ดึงโพสต์**
-4. กด **Export Excel** หรือ **Export CSV** เพื่อดาวน์โหลดข้อมูล
+1. **Step 1** — Enter your API ID, API Hash, and phone number. Click **Save Config** to remember credentials, then click **Send OTP**.
+2. **Step 2** — Enter the OTP received in Telegram.
+3. **Step 3** — Enter the Chat ID or group username, select a date range, and click **Fetch Posts**.
+4. Click **Export Excel** or **Export CSV** to download the data.
 
 ## Excel Output Columns
 
 | Column | Description |
 |--------|-------------|
-| Message ID | ID ของ message |
-| Date | วันเวลา (เวลาไทย UTC+7) |
-| Sender | ชื่อหรือ username ผู้ส่ง |
-| Text | ข้อความเต็ม |
-| ROI ID | ค่า `roi_id` ที่แยกจาก text |
-| OCR | ค่าตัวเลขจาก `ocr:` ที่แยกจาก text |
-| Image | รูปภาพที่แนบมา |
+| Message ID | Telegram message ID |
+| Date | Timestamp in Thailand time (UTC+7) |
+| Sender | Username or display name |
+| Text | Full message text |
+| ROI ID | Parsed `roi_id` value from text |
+| OCR | Parsed numeric value from `ocr:` in text |
+| Image | Embedded image attachment |
 
 ## Stack
 
