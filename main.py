@@ -32,6 +32,10 @@ class ConfigModel(BaseModel):
     api_id: int
     api_hash: str
     phone: str
+    chat_id: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    sender_filter: str | None = None
 
 
 @app.get("/config")
@@ -432,9 +436,9 @@ HTML = """<!DOCTYPE html>
   <h1>📨 Telegram Group Posts</h1>
   <p class="sub">ใช้ MTProto API (user account) ดึงประวัติโพสต์ได้ทั้งหมด</p>
 
-  <!-- Step 1: Login -->
+  <!-- Step 1: Settings -->
   <div id="step1">
-    <h2>Step 1 — เข้าสู่ระบบ Telegram</h2>
+    <h2>Step 1 — ตั้งค่า</h2>
     <label>API ID <span style="color:#6e7681">(จาก my.telegram.org)</span></label>
     <input id="api_id" type="text" placeholder="12345678"/>
     <label>API Hash</label>
@@ -442,6 +446,22 @@ HTML = """<!DOCTYPE html>
     <label>เบอร์โทรศัพท์ (พร้อม country code)</label>
     <input id="phone" type="text" placeholder="+66812345678"/>
     <p class="hint">⚠️ ต้องสมัคร API ID/Hash ที่ <a href="https://my.telegram.org" target="_blank" style="color:#58a6ff">my.telegram.org</a> ก่อน</p>
+    <div style="border-top:1px solid #21262d;margin-top:18px;padding-top:14px">
+      <label>Chat ID หรือ Username ของกลุ่ม</label>
+      <input id="chat_id" placeholder="-4847957256 หรือ @groupname"/>
+      <div class="row">
+        <div>
+          <label>วันที่เริ่มต้น ค.ศ.</label>
+          <input id="date_from" type="date"/>
+        </div>
+        <div>
+          <label>วันที่สิ้นสุด ค.ศ.</label>
+          <input id="date_to" type="date"/>
+        </div>
+      </div>
+      <label>กรองตามชื่อผู้ใช้ / บอท <span style="color:#6e7681">(เว้นว่างเพื่อดึงทั้งหมด)</span></label>
+      <input id="sender_filter" placeholder="เช่น @johndoe หรือ mybot"/>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">
       <button class="btn btn-blue" onclick="sendCode()">ส่ง OTP</button>
       <button class="btn" style="background:#30363d" onclick="saveConfig()">💾 บันทึก Config</button>
@@ -463,20 +483,6 @@ HTML = """<!DOCTYPE html>
   <!-- Step 3: Fetch -->
   <div id="step3">
     <h2>Step 3 — ดึงข้อมูล</h2>
-    <label>Chat ID หรือ Username ของกลุ่ม</label>
-    <input id="chat_id" placeholder="-4847957256 หรือ @groupname"/>
-    <div class="row">
-      <div>
-        <label>วันที่เริ่มต้น ค.ศ.</label>
-        <input id="date_from" type="date"/>
-      </div>
-      <div>
-        <label>วันที่สิ้นสุด ค.ศ.</label>
-        <input id="date_to" type="date"/>
-      </div>
-    </div>
-    <label>กรองตามชื่อผู้ใช้ / บอท <span style="color:#6e7681">(เว้นว่างเพื่อดึงทั้งหมด)</span></label>
-    <input id="sender_filter" placeholder="เช่น @johndoe หรือ mybot"/>
     <button class="btn btn-green" onclick="fetchPosts()">ดึงโพสต์</button>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
       <button class="btn" style="background:#1f6feb;margin-top:0" onclick="exportFile('excel')">📊 Export Excel</button>
@@ -505,9 +511,13 @@ async function loadConfig() {
   const res = await fetch('/config');
   if (!res.ok) return;
   const cfg = await res.json();
-  if (cfg.api_id) document.getElementById('api_id').value = cfg.api_id;
-  if (cfg.api_hash) document.getElementById('api_hash').value = cfg.api_hash;
-  if (cfg.phone) document.getElementById('phone').value = cfg.phone;
+  if (cfg.api_id)        document.getElementById('api_id').value = cfg.api_id;
+  if (cfg.api_hash)      document.getElementById('api_hash').value = cfg.api_hash;
+  if (cfg.phone)         document.getElementById('phone').value = cfg.phone;
+  if (cfg.chat_id)       document.getElementById('chat_id').value = cfg.chat_id;
+  if (cfg.date_from)     document.getElementById('date_from')._flatpickr?.setDate(cfg.date_from, true) || (document.getElementById('date_from').value = cfg.date_from);
+  if (cfg.date_to)       document.getElementById('date_to')._flatpickr?.setDate(cfg.date_to, true) || (document.getElementById('date_to').value = cfg.date_to);
+  if (cfg.sender_filter) document.getElementById('sender_filter').value = cfg.sender_filter;
   if (cfg.api_id) setStatus('status1', '✅ โหลด config สำเร็จ', 'ok');
 }
 
@@ -515,10 +525,14 @@ async function saveConfig() {
   const api_id = parseInt(document.getElementById('api_id').value.trim());
   const api_hash = document.getElementById('api_hash').value.trim();
   const phone = document.getElementById('phone').value.trim();
-  if (!api_id || !api_hash || !phone) { setStatus('status1','⚠️ กรอกข้อมูลให้ครบก่อนบันทึก','err'); return; }
+  if (!api_id || !api_hash || !phone) { setStatus('status1','⚠️ กรอก API ID, Hash และเบอร์โทรก่อนบันทึก','err'); return; }
+  const chat_id       = document.getElementById('chat_id').value.trim() || null;
+  const date_from     = document.getElementById('date_from').value || null;
+  const date_to       = document.getElementById('date_to').value || null;
+  const sender_filter = document.getElementById('sender_filter').value.trim() || null;
   const res = await fetch('/config', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({api_id, api_hash, phone})
+    body: JSON.stringify({api_id, api_hash, phone, chat_id, date_from, date_to, sender_filter})
   });
   if (res.ok) setStatus('status1','💾 บันทึก config แล้ว','ok');
   else setStatus('status1','❌ บันทึกไม่สำเร็จ','err');
