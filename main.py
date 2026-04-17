@@ -67,6 +67,7 @@ class FetchRequest(BaseModel):
     chat_id: str
     date_from: str | None = None
     date_to: str | None = None
+    sender_filter: str | None = None
 
 
 def _parse_date(s: str | None, end_of_day=False) -> datetime.datetime | None:
@@ -157,6 +158,12 @@ async def fetch_messages(req: FetchRequest):
                 sender_name = s.first_name or "unknown"
             elif hasattr(s, "title"):
                 sender_name = s.title
+
+        # กรองตามชื่อผู้ส่งก่อนประมวลผลต่อ
+        if req.sender_filter:
+            keyword = req.sender_filter.lstrip("@").lower()
+            if keyword not in sender_name.lstrip("@").lower():
+                continue
 
         media_type = None
         is_image = False
@@ -453,6 +460,8 @@ HTML = """<!DOCTYPE html>
         <input id="date_to" type="date"/>
       </div>
     </div>
+    <label>กรองตามชื่อผู้ใช้ / บอท <span style="color:#6e7681">(เว้นว่างเพื่อดึงทั้งหมด)</span></label>
+    <input id="sender_filter" placeholder="เช่น @johndoe หรือ mybot"/>
     <button class="btn btn-green" onclick="fetchPosts()">ดึงโพสต์</button>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
       <button class="btn" style="background:#1f6feb;margin-top:0" onclick="exportFile('excel')">📊 Export Excel</button>
@@ -542,14 +551,16 @@ async function fetchPosts() {
   const chat_id = document.getElementById('chat_id').value.trim();
   const date_from = document.getElementById('date_from').value || null;
   const date_to = document.getElementById('date_to').value || null;
+  const sender_filter = document.getElementById('sender_filter').value.trim() || null;
   if (!chat_id) { setStatus('status3','⚠️ กรอก Chat ID ก่อน','err'); return; }
 
-  setStatus('status3','⏳ กำลังดึงข้อมูล อาจใช้เวลาสักครู่...','info');
+  const filterMsg = sender_filter ? ` (กรองจาก: ${sender_filter})` : '';
+  setStatus('status3',`⏳ กำลังดึงข้อมูล${filterMsg} อาจใช้เวลาสักครู่...`,'info');
   document.getElementById('results').innerHTML = '';
 
   const res = await fetch('/fetch', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({api_id:apiId, api_hash:apiHash, chat_id, date_from, date_to})
+    body: JSON.stringify({api_id:apiId, api_hash:apiHash, chat_id, date_from, date_to, sender_filter})
   });
   const data = await res.json();
   if (!res.ok) { setStatus('status3','❌ '+data.detail,'err'); return; }
