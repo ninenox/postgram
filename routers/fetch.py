@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 
 from fastapi import APIRouter, HTTPException, Request
@@ -17,11 +18,25 @@ templates = Jinja2Templates(directory="templates")
 CONFIG_FILE = pathlib.Path("config.json")
 
 
+def _env_defaults() -> dict:
+    raw_id = os.getenv("TG_API_ID")
+    return {k: v for k, v in {
+        "api_id":        int(raw_id) if raw_id and raw_id.isdigit() else None,
+        "api_hash":      os.getenv("TG_API_HASH"),
+        "phone":         os.getenv("TG_PHONE"),
+        "chat_id":       os.getenv("TG_CHAT_ID"),
+        "date_from":     os.getenv("TG_DATE_FROM"),
+        "date_to":       os.getenv("TG_DATE_TO"),
+        "sender_filter": os.getenv("TG_SENDER_FILTER"),
+    }.items() if v is not None}
+
+
 @router.get("/config")
 async def get_config():
+    cfg = _env_defaults()
     if CONFIG_FILE.exists():
-        return json.loads(CONFIG_FILE.read_text())
-    return {}
+        cfg.update(json.loads(CONFIG_FILE.read_text()))
+    return cfg
 
 
 @router.post("/config")

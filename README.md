@@ -44,6 +44,28 @@ python3 -m venv .venv
 
 ---
 
+## Configuration
+
+Copy `.env.example` to `.env` and fill in your credentials:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TG_API_ID` | Yes | Integer app ID from my.telegram.org |
+| `TG_API_HASH` | Yes | App hash string from my.telegram.org |
+| `TG_PHONE` | Yes | Phone number with country code |
+| `TG_CHAT_ID` | No | Default group/channel ID or @username |
+| `TG_DATE_FROM` | No | Default start date `YYYY-MM-DD` |
+| `TG_DATE_TO` | No | Default end date `YYYY-MM-DD` |
+| `TG_SENDER_FILTER` | No | Default sender filter |
+
+Values from `.env` are used as defaults and can be overridden via the web UI. Settings saved through the UI are written to `config.json` (takes priority over `.env`).
+
+---
+
 ## Running
 
 ```bash
