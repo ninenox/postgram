@@ -1,5 +1,10 @@
 # Postgram — Telegram Group Posts Viewer
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![Telethon](https://img.shields.io/badge/Telethon-MTProto-2CA5E0.svg)](https://docs.telethon.dev/)
+
 A web app for fetching and viewing the full post history from Telegram groups via the **MTProto API** (Telethon). Supports date range filtering, sender filtering, inline image display, and export to Excel or CSV.
 
 > Unlike the standard Telegram Bot API which only retains updates for ~24 hours, MTProto API access via a user account retrieves the complete message history with no time limit.
